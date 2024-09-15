@@ -19,7 +19,7 @@ export default function Navbar() {
 						display={{ base: "none", sm: "flex" }}
 					>
 						<img src='/vinyl.png' alt='logo' width={40} height={40} />
-						<Text fontSize={"24"} fontWeight={500} >
+						<Text fontSize={"xl"} fontWeight={500} >
 							UrbanDisco 
 						</Text>
 					</Flex>

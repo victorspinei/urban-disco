@@ -21,6 +21,7 @@ import (
 	kkdaiYoutube "github.com/kkdai/youtube/v2"
 	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
+	g "github.com/serpapi/google-search-results-golang"
 )
 
 // Structs matching Discogs API response
@@ -35,6 +36,7 @@ type ResultSearch struct {
 type DiscogsAlbumResponse struct {
 	Tracklist []Track   `json:"tracklist"`
 	Artists   []Artists `json:"artists"`
+	Title string `json:title`
 }
 
 type Track struct {
@@ -51,6 +53,10 @@ const sampleRate = "44100"
 
 var apiKey string
 var token string
+var serpKey string
+
+var Artist string
+var AlbumName string
 
 func main() {
 	// Load environment variables from .env file
@@ -63,6 +69,7 @@ func main() {
 
 	apiKey = os.Getenv("API_KEY")
 	token = os.Getenv("TOKEN")
+	serpKey = os.Getenv("SERP_KEY")
 
 	app := fiber.New()
 
@@ -102,6 +109,7 @@ func getTrackList(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(500).SendString(fmt.Sprintf("Error fetching tracklist: %v", err))
 	}
+	Artist = artist
 
 	// Create a response with body, artist, and downloaded=false for each track
 	var response []map[string]interface{}
@@ -109,9 +117,21 @@ func getTrackList(c *fiber.Ctx) error {
 	for _, track := range tracklist {
 		response = append(response, map[string]interface{}{
 			"body":       track,
-			"artist":     artist,
+			"artist":     Artist,
 			"downloaded": false,
 		})
+	}
+
+	albumCoverImageLink, err := getCoverImageLink(AlbumName)
+	if (err != nil) {
+		fmt.Println(albumCoverImageLink)
+		return c.Status(500).SendString(fmt.Sprintf("Error fetching album cover image link: %v", err))
+	}
+	fmt.Println(albumCoverImageLink)
+
+	err = DownloadImage(albumCoverImageLink, "./tmp/album_cover.jpg")
+	if err != nil {
+		return fmt.Errorf("error downloading cover image: %v", err)
 	}
 
 	// Return the JSON response
@@ -144,15 +164,15 @@ func getSongFile(c *fiber.Ctx) error {
 	}
 
 	// Download the audio from YouTube as MP3
-	title := strings.ReplaceAll(songName, " ", "_") // Make file name safe
-	mp3FileName := fmt.Sprintf("tmp/%s.mp3", title)
-	if err := DownloadYouTubeAudioAsMP3(videoID, mp3FileName); err != nil {
+	//title := strings.ReplaceAll(songName, " ", "_") // Make file name safe
+	mp3FileName := fmt.Sprintf("tmp/%s.mp3", songName)
+	if err := DownloadYouTubeAudioAsMP3(videoID, mp3FileName, songName); err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString(fmt.Sprintf("Error downloading audio: %v", err))
 	}
 
 	// Serve the MP3 file for download
 	defer os.Remove(mp3FileName) // Clean up after download
-	return c.Download(mp3FileName, title+".mp3")
+	return c.Download(mp3FileName, songName+".mp3")
 }
 
 // GetSongsFromAlbum queries Discogs for the album and returns the tracklist and artist name
@@ -161,7 +181,7 @@ func GetSongsFromAlbum(token, albumName string) ([]string, string, error) {
 	query := strings.ReplaceAll(albumName, " ", "+")
 
 	// Get album data from Discogs
-	resp, err := http.Get(discogsBaseURL + "database/search?token=" + token + "&q=" + query)
+	resp, err := http.Get(discogsBaseURL + "database/search?token=" + token + "&q=" + query + "&type=master")
 	if err != nil {
 		return nil, "", err
 	}
@@ -210,6 +230,8 @@ func GetSongsFromAlbum(token, albumName string) ([]string, string, error) {
 		trackListing = append(trackListing, track.Title)
 	}
 
+	AlbumName = albumResponse.Title
+
 	return trackListing, albumResponse.Artists[0].Name, nil
 }
 
@@ -246,7 +268,7 @@ func SearchYouTube(apiKey, query string) (string, error) {
 }
 
 // downloadYouTubeAudioAsMP3 downloads the audio of a YouTube video and converts it to MP3
-func DownloadYouTubeAudioAsMP3(videoID, title string) error {
+func DownloadYouTubeAudioAsMP3(videoID, mp3FileName, title string) error {
 	client := kkdaiYoutube.Client{}
 
 	// Fetch the video info
@@ -283,11 +305,11 @@ func DownloadYouTubeAudioAsMP3(videoID, title string) error {
 	log.Printf("Downloaded audio to: %s", audioFileName)
 
 	// Convert to MP3
-	if err := ConvertToMP3(audioFileName, title); err != nil {
+	if err := ConvertToMP3(audioFileName, mp3FileName, title); err != nil {
 		return fmt.Errorf("error converting to mp3: %v", err)
 	}
 
-	log.Printf("Converted audio to MP3: %s", title)
+	log.Printf("Converted audio to MP3: %s", mp3FileName)
 
 	// Remove temporary audio file
 	os.Remove(audioFileName)
@@ -296,11 +318,91 @@ func DownloadYouTubeAudioAsMP3(videoID, title string) error {
 }
 
 // convertToMP3 converts an audio file to MP3 using ffmpeg
-func ConvertToMP3(inputFile, outputFile string) error {
-	cmd := exec.Command("ffmpeg", "-i", inputFile, "-vn", "-ab", audioBitrate, "-ar", sampleRate, "-y", outputFile)
+func ConvertToMP3(inputFile, outputFile, title string) error {
+	// Prepare the ffmpeg command
+	cmd := exec.Command("ffmpeg", 
+		"-i", inputFile,              // Input audio file
+		"-i", "./tmp/album_cover.jpg",             // Input album cover image
+		"-c:a", "libmp3lame",         // Audio codec for MP3
+		"-b:a", "192k",               // Bitrate
+		"-map", "0:a",                // Map the audio from the first input
+		"-map", "1",                  // Map the album cover image
+		"-c:v", "mjpeg",              // Set codec for image (mjpeg for JPEG images)
+		"-id3v2_version", "3",        // Use ID3v2.3 for MP3 metadata
+		"-metadata", fmt.Sprintf("title=%s", title),     // Title metadata
+		"-metadata", fmt.Sprintf("artist=%s", Artist),   // Artist metadata
+		"-metadata", fmt.Sprintf("album=%s", AlbumName), // Album metadata
+		"-y", outputFile)             // Output MP3 file, overwrite if exists
+
+	// Set the command output streams to the terminal
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	log.Printf("Converting %s to %s", filepath.Base(inputFile), filepath.Base(outputFile))
+	// Log and run the command
+	log.Printf("Converting %s to %s with album cover", filepath.Base(inputFile), filepath.Base(outputFile))
 	return cmd.Run()
+}
+
+// getCoverImageLink looks for the image of the album cover on Google Images and returns the link to the image
+func getCoverImageLink(albumName string) (string, error) {
+	parameter := map[string]string{
+		"q":      fmt.Sprintf("%s album", albumName),
+		"engine": "google_images",
+		"ijn":    "0", // Page index for the search results
+	}
+
+	search := g.NewGoogleSearch(parameter, serpKey)
+	results, err := search.GetJSON()
+	if err != nil {
+		return "", fmt.Errorf("failed to get search results: %v", err)
+	}
+
+	// Parse the results to find image links
+	imagesResults, ok := results["images_results"].([]interface{})
+	if !ok || len(imagesResults) == 0 {
+		return "", fmt.Errorf("no image results found")
+	}
+
+	// Get the first image's thumbnail link
+	firstImage, ok := imagesResults[0].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("unexpected image result format")
+	}
+
+	thumbnail, ok := firstImage["thumbnail"].(string)
+	if !ok || thumbnail == "" {
+		return "", fmt.Errorf("no thumbnail found for the first image")
+	}
+
+	return thumbnail, nil
+}
+
+// DownloadImage downloads an image from the given URL and saves it to the specified file path.
+func DownloadImage(imageURL, filePath string) error {
+	// Make the HTTP request to get the image
+	resp, err := http.Get(imageURL)
+	if err != nil {
+		return fmt.Errorf("failed to download image: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Check if the request was successful
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download image, status code: %d", resp.StatusCode)
+	}
+
+	// Create the local file to save the image
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %v", err)
+	}
+	defer file.Close()
+
+	// Copy the image data from the response to the file
+	_, err = io.Copy(file, resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to save image: %v", err)
+	}
+
+	return nil
 }

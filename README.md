@@ -1,12 +1,11 @@
 # Urban Disco
 
-Urban Disco is a Go-based application that facilitates finding, downloading, and managing songs from a specific album by a given artist. The application fetches a list of tracks from the album, downloads them as MP3 files from YouTube, and retrieves their lyrics.
+Urban Disco is a Go-based web application that facilitates finding, downloading, and managing songs from a specific album by a given artist. The application fetches a list of tracks from the album, downloads them as MP3 files from YouTube, and retrieves their lyrics.
 
 ## Features
 
 - **Album and Artist Search:** Enter the name of an album and the artist to retrieve all tracks.
 - **MP3 Download:** Download each track as an MP3 file.
-- **Lyrics Retrieval:** Fetch lyrics for each track.
 - **Rate Limiting:** Protect the API from excessive requests.
 - **Environment Configuration:** Manage API tokens and environment settings through a `.env` file.
 
@@ -18,6 +17,7 @@ Urban Disco is a Go-based application that facilitates finding, downloading, and
 - ffmpeg (for MP3 conversion)
 - A Discogs API token
 - A YouTube Data API key
+- A SERP API key (for YouTube search)
 
 ### Clone the Repository
 
@@ -41,11 +41,14 @@ Create a `.env` file in the root directory of the project with the following con
 ```plaintext
 TOKEN=your_discogs_token_here
 API_KEY=your_youtube_api_key_here
+SERP_KEY=your_serp_api_key_here
 ENV=production
 PORT=5000
 ```
 
-Replace `your_discogs_token_here` and `your_youtube_api_key_here` with your actual API tokens.
+- Replace `your_discogs_token_here` with your actual Discogs API token.
+- Replace `your_youtube_api_key_here` with your actual YouTube API key.
+- Replace `your_serp_api_key_here` with your SERP API key for performing YouTube searches.
 
 ### Run the Server
 
@@ -110,7 +113,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Contributing
 
 Contributions are welcome! Please fork the repository and submit a pull request with your changes.
-
----
-
-Feel free to adjust the content according to your project's specifics or personal preferences!
