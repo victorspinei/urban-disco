@@ -151,7 +151,7 @@ func getSongFile(c *fiber.Ctx) error {
 	os.MkdirAll("tmp", os.ModePerm)
 
 	// Format the query for YouTube search
-	ytQuery := fmt.Sprintf("%s %s (oficial)", songName, artist)
+	ytQuery := fmt.Sprintf("%s - %s",artist, songName)
 
 	// Search for the track on YouTube
 	videoID, err := SearchYouTube(apiKey, ytQuery)
